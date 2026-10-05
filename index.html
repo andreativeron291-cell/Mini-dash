@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Geometry Dash Mini</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070714;color:#fff;font-family:Arial,sans-serif}
+body{touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+button{font:inherit;color:#fff;border:0;cursor:pointer}
+#top{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none;z-index:3}
+.badge{background:rgba(8,8,25,.75);border:1px solid rgba(255,255,255,.25);border-radius:12px;padding:8px 12px;font-weight:bold;backdrop-filter:blur(6px)}
+#buttons{position:fixed;right:12px;bottom:12px;display:flex;gap:8px;z-index:4}
+.icon{width:52px;height:52px;border-radius:15px;background:rgba(20,20,48,.9);border:2px solid #fff;font-size:23px}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10;align-items:center;justify-content:center;padding:15px}
+.card{width:min(94vw,500px);max-height:88vh;overflow:auto;background:linear-gradient(180deg,#20204a,#101025);border:2px solid #fff;border-radius:20px;padding:20px;box-shadow:0 15px 60px #000}
+.card h2{text-align:center;margin:0 0 16px}
+.close{width:100%;margin-top:15px;padding:12px;border-radius:12px;background:#9b2850}
+.shopX{position:absolute;right:12px;top:10px;width:42px;height:42px;border-radius:50%;background:#9b2850;font-size:30px;line-height:36px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.skin{background:#0c0c20;border:1px solid #555;border-radius:15px;padding:14px;text-align:center}
+.preview{width:65px;height:65px;margin:0 auto 8px;border:4px solid #111;transform:rotate(0deg)}
+.skin button{width:100%;padding:9px;margin-top:8px;border-radius:9px;background:#30306b}
+.skin button:disabled{opacity:.45}
+.small{color:#bbb;text-align:center;font-size:13px}
+#adminPanel input{width:100%;padding:11px;border-radius:9px;border:1px solid #777;background:#080812;color:#fff;margin-bottom:8px}
+.toggle{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #333}
+</style>
+</head>
+<body>
+<canvas id="game" width="1200" height="650"></canvas>
+
+<div id="top">
+  <div class="badge">⭐ <span id="scoreUI">0</span></div>
+  <div class="badge">🪙 <span id="coinsUI">0</span></div>
+</div>
+
+<div id="buttons">
+  <button class="icon" id="shopBtn">🛒</button>
+  <button class="icon" id="adminBtn">⚙️</button>
+</div>
+
+<div class="overlay" id="shop">
+ <div class="card" style="position:relative">
+  <button class="shopX" id="shopX" aria-label="Chiudi negozio">×</button>
+  <h2>🛒 NEGOZIO SKIN</h2>
+  <p class="small">Ogni punto ottenuto = 1 moneta. Le monete restano salvate anche se perdi o esci dal gioco.</p>
+  <div class="grid" id="skinGrid"></div>
+  <button class="close">CHIUDI</button>
+ </div>
+</div>
+
+<div class="overlay" id="adminPanel">
+ <div class="card">
+  <h2>🔐 ADMIN PANEL</h2>
+  <div id="login">
+   <input id="key" type="password" placeholder="Chiave admin">
+   <button class="skin button" id="unlock" style="width:100%;padding:11px;border-radius:10px;background:#30306b">SBLOCCA</button>
+   <p id="msg" class="small"></p>
+  </div>
+  <div id="cheats" style="display:none">
+   <div class="toggle">👻 Invincibilità <input id="god" type="checkbox"></div>
+   <div class="toggle">🚀 Salto alto <input id="high" type="checkbox"></div>
+   <div class="toggle">⚡ Super velocità <input id="fast" type="checkbox"></div>
+   <div class="toggle">🐌 Modalità lenta <input id="slow" type="checkbox"></div>
+   <div class="toggle">🌙 Gravità bassa <input id="gravity" type="checkbox"></div>
+   <div class="toggle">🧱 Niente ostacoli <input id="noobs" type="checkbox"></div>
+   <button id="addCoins" style="width:100%;padding:11px;margin-top:12px;border-radius:10px;background:#30306b">+10.000 🪙</button>
+   <button id="clearObs" style="width:100%;padding:11px;margin-top:8px;border-radius:10px;background:#30306b">Elimina ostacoli</button>
+  </div>
+  <button class="close">CHIUDI</button>
+ </div>
+</div>
+
+<script>
+const c=document.getElementById("game"),ctx=c.getContext("2d");
+const W=1200,H=650,ground=535;
+let dpr=Math.min(devicePixelRatio||1,2);
+let player,obstacles,particles,score,coins,best,spawnTimer,last=0,gameOver=false,running=true;
+let worldX=0;
+const saveKey="gdMiniSaveV2";
+const data=JSON.parse(localStorage.getItem(saveKey)||"{}");
+coins=data.coins||0; best=data.best||0;
+let owned=data.owned||["classic"], selected=data.selected||"classic";
+const skins=[
+ {id:"classic",name:"Classic",emoji:"🟨",cost:0,color:"#ffdf27",accent:"#111"},
+ {id:"ruby",name:"Ruby",emoji:"🟥",cost:1000,color:"#ff3d63",accent:"#fff"},
+ {id:"cyan",name:"Cyan",emoji:"🟦",cost:1000,color:"#25d9ff",accent:"#09202a"},
+ {id:"lime",name:"Lime",emoji:"🟩",cost:1000,color:"#73ff4d",accent:"#102010"},
+ {id:"purple",name:"Purple",emoji:"🟪",cost:1000,color:"#b56cff",accent:"#21102f"},
+ {id:"gold",name:"Gold",emoji:"🟧",cost:1000,color:"#ff9e27",accent:"#351b00"}
+];
+const cheats={god:false,high:false,fast:false,slow:false,gravity:false,noobs:false};
+function save(){localStorage.setItem(saveKey,JSON.stringify({coins,best,owned,selected}))}
+function skin(){return skins.find(s=>s.id===selected)||skins[0]}
+function reset(){
+ player={x:170,y:ground-48,w:48,h:48,vy:0,onGround:true,rot:0};
+ obstacles=[];particles=[];score=0;spawnTimer=.9;gameOver=false;running=true;worldX=0;
+}
+function jump(){
+ if(gameOver){reset();return}
+ if(player.onGround){player.vy=cheats.high?-950:-720;player.onGround=false}
+}
+function addObstacle(){
+ const type=Math.random();
+ if(type<.72){
+  const h=25+Math.random()*55,w=30+Math.random()*22;
+  obstacles.push({x:W+60,y:ground-h,w,h});
+ }else{
+  obstacles.push({x:W+60,y:ground-30,w:36,h:30});
+  obstacles.push({x:W+125,y:ground-30,w:36,h:30});
+ }
+}
+function hitRect(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function pointInTri(px,py,t){
+ const [a,b,c]=t;
+ const d1=(px-b[0])*(a[1]-b[1])-(a[0]-b[0])*(py-b[1]);
+ const d2=(px-c[0])*(b[1]-c[1])-(b[0]-c[0])*(py-c[1]);
+ const d3=(px-a[0])*(c[1]-a[1])-(c[0]-a[0])*(py-a[1]);
+ return (d1>=0&&d2>=0&&d3>=0)||(d1<=0&&d2<=0&&d3<=0);
+}
+function segHit(a,b,c,d){
+ const cross=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+ const c1=cross(a,b,c),c2=cross(a,b,d),c3=cross(c,d,a),c4=cross(c,d,b);
+ return ((c1>0&&c2<0)||(c1<0&&c2>0))&&((c3>0&&c4<0)||(c3<0&&c4>0));
+}
+function spikeHit(rect,o){
+ const r=[ [rect.x,rect.y],[rect.x+rect.w,rect.y],
+           [rect.x+rect.w,rect.y+rect.h],[rect.x,rect.y+rect.h] ];
+ const t=[[o.x,ground],[o.x+o.w/2,o.y],[o.x+o.w,ground]];
+ if(t.some(p=>p[0]>=rect.x&&p[0]<=rect.x+rect.w&&p[1]>=rect.y&&p[1]<=rect.y+rect.h)) return true;
+ if(r.some(p=>pointInTri(p[0],p[1],t))) return true;
+ for(let i=0;i<3;i++) if(segHit(t[i],t[(i+1)%3],r[i],r[(i+1)%4])) return true;
+ return false;
+}
+function burst(x,y){
+ for(let i=0;i<28;i++)particles.push({x,y,vx:(Math.random()-.5)*600,vy:(Math.random()-.8)*600,life:.65,size:3+Math.random()*5});
+}
+function die(){
+ if(gameOver)return;
+ gameOver=true;running=false;burst(player.x+24,player.y+24);
+ best=Math.max(best,Math.floor(score));save();
+}
+function update(dt){
+ if(!running){
+  particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=1100*dt;p.life-=dt});
+  particles=particles.filter(p=>p.life>0);return;
+ }
+ const oldScore=Math.floor(score);
+ score+=dt*10;
+ const newScore=Math.floor(score);
+ if(newScore>oldScore){
+  coins += newScore-oldScore;
+  save();
+ }
+ coins=Math.max(coins,0);
+ document.getElementById("scoreUI").textContent=Math.floor(score);
+ document.getElementById("coinsUI").textContent=coins;
+ spawnTimer-=dt;
+ let base=390+score*1.6,actual=base;
+ if(cheats.fast)actual*=1.65;if(cheats.slow)actual*=.55;
+ if(spawnTimer<=0){if(!cheats.noobs)addObstacle();spawnTimer=.72+Math.random()*.7}
+ const grav=cheats.gravity?700:2100;
+ player.vy+=grav*dt;player.y+=player.vy*dt;
+ if(player.y+player.h>=ground){player.y=ground-player.h;player.vy=0;player.onGround=true;player.rot=0}
+ else{player.onGround=false;player.rot+=dt*9}
+ obstacles.forEach(o=>o.x-=actual*dt);
+ obstacles=obstacles.filter(o=>o.x+o.w>-50);
+ if(!cheats.god){
+  const hb={x:player.x+6,y:player.y+6,w:player.w-12,h:player.h-12};
+  for(const o of obstacles) if(spikeHit(hb,o)){die();break}
+ }
+ document.getElementById("scoreUI").textContent=Math.floor(score);
+ document.getElementById("coinsUI").textContent=coins;
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,"#27276a");grad.addColorStop(1,"#09091b");ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+ // parallax skyline
+ for(let i=0;i<16;i++){let x=(i*100-(worldX*.18)%100);let h=50+(i%5)*25;ctx.fillStyle="rgba(100,100,190,.14)";ctx.fillRect(x,ground-h,75,h)}
+ ctx.strokeStyle="rgba(255,255,255,.065)";ctx.lineWidth=1;
+ for(let x=-(worldX%60);x<W;x+=60){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+ for(let y=55;y<ground;y+=55){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+ // floor
+ ctx.fillStyle="#20d8b0";ctx.fillRect(0,ground,W,H-ground);
+ ctx.fillStyle="#d8fff8";ctx.fillRect(0,ground,W,5);
+ for(let x=-(worldX%70);x<W;x+=70){ctx.fillStyle="rgba(0,0,0,.16)";ctx.beginPath();ctx.moveTo(x,ground+5);ctx.lineTo(x+35,ground+5);ctx.lineTo(x+5,ground+45);ctx.lineTo(x-30,ground+45);ctx.closePath();ctx.fill()}
+ // obstacles
+ obstacles.forEach(o=>{
+  ctx.fillStyle="#ff4168";ctx.beginPath();ctx.moveTo(o.x,ground);ctx.lineTo(o.x+o.w/2,o.y);ctx.lineTo(o.x+o.w,ground);ctx.closePath();ctx.fill();
+  ctx.strokeStyle="#fff";ctx.lineWidth=3;ctx.stroke();
+ });
+ // player
+ const s=skin();ctx.save();ctx.translate(player.x+24,player.y+24);ctx.rotate(player.rot);
+ ctx.shadowBlur=14;ctx.shadowColor=s.color;ctx.fillStyle=s.color;ctx.fillRect(-24,-24,48,48);
+ ctx.shadowBlur=0;ctx.strokeStyle="#111";ctx.lineWidth=5;ctx.strokeRect(-24,-24,48,48);
+ ctx.fillStyle=s.accent;ctx.fillRect(-14,-11,8,8);ctx.fillRect(6,-11,8,8);
+ ctx.fillRect(-12,7,24,5);ctx.restore();
+ particles.forEach(p=>{ctx.globalAlpha=Math.max(0,p.life*1.7);ctx.fillStyle=s.color;ctx.fillRect(p.x,p.y,p.size,p.size);ctx.globalAlpha=1});
+ if(gameOver){
+  ctx.fillStyle="rgba(0,0,0,.68)";ctx.fillRect(0,0,W,H);ctx.textAlign="center";
+  ctx.fillStyle="#fff";ctx.font="bold 64px Arial";ctx.fillText("GAME OVER",W/2,255);
+  ctx.font="24px Arial";ctx.fillText("Tocca lo schermo per riprovare",W/2,305);
+  ctx.font="18px Arial";ctx.fillText("Punteggio: "+Math.floor(score)+" • Record: "+best,W/2,340);ctx.textAlign="left";
+ }
+ worldX+=1;
+}
+function loop(t){let dt=Math.min((t-last)/1000,.033);last=t;update(dt);draw();requestAnimationFrame(loop)}
+addEventListener("keydown",e=>{if(["Space","ArrowUp"].includes(e.code)){e.preventDefault();jump()}if(e.code==="KeyR")reset()});
+
+// Salvataggio automatico anche quando l'utente esce, chiude o mette in background il gioco.
+addEventListener("beforeunload",()=>save());
+addEventListener("pagehide",()=>save());
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")save();});
+setInterval(save,3000);
+c.addEventListener("pointerdown",jump);
+
+const shop=document.getElementById("shop"),admin=document.getElementById("adminPanel");
+document.getElementById("shopBtn").onclick=()=>{renderShop();shop.style.display="flex"};
+document.getElementById("adminBtn").onclick=()=>admin.style.display="flex";
+document.getElementById("shopX").onclick=()=>shop.style.display="none";
+document.querySelectorAll(".close").forEach(b=>b.onclick=()=>{shop.style.display="none";admin.style.display="none"});
+function renderShop(){
+ const g=document.getElementById("skinGrid");g.innerHTML="";
+ skins.forEach(s=>{
+  const isOwned=owned.includes(s.id),isSel=selected===s.id;
+  const div=document.createElement("div");div.className="skin";
+  div.innerHTML=`<div class="preview" style="background:${s.color};box-shadow:0 0 12px ${s.color}"></div><b>${s.name}</b><div class="small">${s.cost? s.cost+" 🪙":"Gratis"}</div>`;
+  const b=document.createElement("button");
+  b.textContent=isSel?"EQUIPAGGIATA":isOwned?"EQUIPAGGIA":"COMPRA";
+  b.disabled=isSel;
+  b.onclick=()=>{
+   if(isOwned){selected=s.id;save();renderShop()}
+   else if(coins>=s.cost){
+    coins-=s.cost;owned.push(s.id);selected=s.id;save();renderShop()
+   }else alert("Ti servono 1000 monete!");
+  };
+  div.appendChild(b);g.appendChild(div);
+ });
+}
+document.getElementById("unlock").onclick=()=>{
+ if(document.getElementById("key").value==="ANDRE_29_KEY"){
+  document.getElementById("login").style.display="none";document.getElementById("cheats").style.display="block";
+ }else document.getElementById("msg").textContent="❌ Chiave errata";
+};
+["god","high","fast","slow","gravity","noobs"].forEach(id=>document.getElementById(id).onchange=e=>cheats[id]=e.target.checked);
+document.getElementById("addCoins").onclick=()=>{coins+=10000;save();document.getElementById("coinsUI").textContent=coins;};
+document.getElementById("clearObs").onclick=()=>obstacles=[];
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+                               </html>
+  
